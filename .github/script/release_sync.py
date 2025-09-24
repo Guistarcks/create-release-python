@@ -50,7 +50,7 @@ def bump_minor_semver(semver: str) -> str:
 def root_package_json() -> Optional[str]:
     return "package.json" if os.path.exists("package.json") else None
 
-def root_pom() -> Optional[str]:
+
 
 # Busca todos los pom.xml en el repo (excepto target/ y directorios ocultos)
 def find_all_poms() -> list:
