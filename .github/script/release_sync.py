@@ -51,7 +51,16 @@ def root_package_json() -> Optional[str]:
     return "package.json" if os.path.exists("package.json") else None
 
 def root_pom() -> Optional[str]:
-    return "pom.xml" if os.path.exists("pom.xml") else None
+
+# Busca todos los pom.xml en el repo (excepto target/ y directorios ocultos)
+def find_all_poms() -> list:
+    poms = []
+    for root, dirs, files in os.walk("."):
+        # Ignorar carpetas target y ocultas
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d != 'target']
+        if "pom.xml" in files:
+            poms.append(os.path.join(root, "pom.xml"))
+    return poms
 
 # ----------------- package.json -----------------
 
@@ -212,12 +221,13 @@ def main():
 
     # root files
     pkg = root_package_json()
-    pom = root_pom()
+    poms = find_all_poms()
 
     # 1) Remove snapshot in main
     changed_files = []
     if pkg and remove_snapshot_from_package_json(pkg, source_semver): changed_files.append(pkg)
-    if pom and remove_snapshot_from_pom(pom, source_semver): changed_files.append(pom)
+    for pom in poms:
+        if remove_snapshot_from_pom(pom, source_semver): changed_files.append(pom)
     if changed_files:
         run(["git","add"] + changed_files)
         run(["git","commit","-m",f"chore(release): remove -snapshot for v{source_semver}"])
@@ -249,7 +259,7 @@ def main():
     if pkg:
         v = add_snapshot_bump_package_json(pkg, source_semver)
         if v: changed_dev.append(pkg); new_versions.append(v)
-    if pom:
+    for pom in poms:
         v = add_snapshot_bump_pom(pom, source_semver)
         if v: changed_dev.append(pom); new_versions.append(v)
     if changed_dev:
@@ -261,3 +271,4 @@ def main():
     print("Proceso completado con éxito.")
 
 if __name__ == "__main__": main()
+
