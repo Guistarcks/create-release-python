@@ -2,33 +2,33 @@
 """
 release_sync.py
 
-Uso esperado (desde GitHub Actions):
-  - Evento: pull_request.closed (merge a main desde release/x.y.z)
-  - Pasar SOURCE_BRANCH (ej: release/1.0.0) o el workflow lo provee desde GITHUB_EVENT_PATH.
-  - Requiere: gh CLI instalado y autenticado, GITHUB_TOKEN, y permisos de push.
+Ejecución esperada desde GH Actions:
+  - Evento: pull_request.closed (merge a main desde release/X.Y.Z)
+  - Se puede pasar --source-branch o se infiere desde GITHUB_EVENT_PATH.
+  - Requiere: gh CLI instalado y autenticado (GITHUB_TOKEN), permisos de push.
 
-Funciones:
-  - Quitar -snapshot en main (package.json + pom.xml)
-  - Crear tag vX.Y.Z y GitHub Release
-  - Crear branch desde develop, merge main -> branch, bump minor + -snapshot en versiones, crear PR y mergearlo.
+Flujo:
+  1) Quitar -snapshot en main (root package.json + root pom.xml)
+  2) Crear tag vX.Y.Z y GitHub Release
+  3) Merge origin/main -> develop (sin crear ramas)
+  4) Bump minor + añadir -snapshot en develop (package.json -> -snapshot; pom.xml -> -SNAPSHOT)
 """
 import argparse
+import json
 import os
 import re
 import subprocess
 import sys
-import json
-from glob import glob
-import xml.etree.ElementTree as ET
-from typing import Tuple, List, Optional
+from xml.etree import ElementTree as ET
+from typing import Optional, Tuple
 
-# ---------- Utilities ----------
+# ---------- Helpers ----------
 
 def run(cmd, capture_output=False, check=True, env=None):
-    if isinstance(cmd, str):
-        shell = True
-    else:
+    if isinstance(cmd, (list, tuple)):
         shell = False
+    else:
+        shell = True
     result = subprocess.run(cmd, shell=shell, capture_output=capture_output, text=True, check=check, env=env)
     return result
 
@@ -44,16 +44,12 @@ def set_remote_with_token(repo_full_name: str, token: str):
 
 def extract_version_from_branch(branch: str) -> Optional[str]:
     m = re.match(r"^release\/(?P<ver>\d+\.\d+\.\d+)$", branch)
-    if m:
-        return m.group("ver")
-    return None
+    return m.group("ver") if m else None
 
 def split_version_str(v: str) -> Optional[Tuple[str, str, str]]:
     """
-    Split a version-like string into (prefix, semver, suffix).
-    Example:
-      'cba-1.0.0-snapshot' -> ('cba-', '1.0.0', '-snapshot')
-      '1.0.0' -> ('', '1.0.0', '')
+    Devuelve (prefix, semver, suffix) donde semver es X.Y.Z dentro de la cadena.
+    Ej: 'cba-1.0.0-snapshot' -> ('cba-', '1.0.0', '-snapshot')
     """
     m = re.search(r'(?P<semver>\d+\.\d+\.\d+)', v)
     if not m:
@@ -69,306 +65,286 @@ def bump_minor_semver(semver: str) -> str:
     patch = 0
     return f"{major}.{minor}.{patch}"
 
-def find_package_json_files() -> List[str]:
-    return [p for p in glob("**/package.json", recursive=True) if "/node_modules/" not in p and ".github/" not in p]
+# ---------- Files at repo root ----------
 
-def find_pom_files() -> List[str]:
-    return [p for p in glob("**/pom.xml", recursive=True) if ".github/" not in p]
+def root_package_json() -> Optional[str]:
+    p = "package.json"
+    return p if os.path.exists(p) else None
 
-# ---------- Update package.json ----------
+def root_pom() -> Optional[str]:
+    p = "pom.xml"
+    return p if os.path.exists(p) else None
 
-def update_package_json_remove_snapshot(files: List[str], source_semver: str) -> List[str]:
-    changed = []
-    for f in files:
-        with open(f, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-        v = data.get("version")
-        if not v:
+# ---------- package.json ops ----------
+
+def remove_snapshot_from_package_json(path: str, source_semver: str) -> bool:
+    """Quita -snapshot y deja prefix+semver si corresponde. Devuelve True si cambió."""
+    with open(path, 'r', encoding='utf-8') as fh:
+        data = json.load(fh)
+    v = data.get("version")
+    if not v:
+        return False
+    parts = split_version_str(v)
+    if not parts:
+        return False
+    prefix, semver, suffix = parts
+    # si coincide semver o contiene snapshot -> dejar prefix+semver
+    if semver == source_semver or re.search(r'snapshot', suffix, re.IGNORECASE):
+        new_v = prefix + semver
+        if new_v != v:
+            data["version"] = new_v
+            with open(path, 'w', encoding='utf-8') as fh:
+                json.dump(data, fh, indent=2, ensure_ascii=False)
+                fh.write("\n")
+            print(f"[package.json] {path}: {v} -> {new_v}")
+            return True
+    return False
+
+def add_snapshot_bump_package_json(path: str, source_semver: str) -> Optional[str]:
+    """Bump minor y añade -snapshot. Retorna nueva versión o None."""
+    with open(path, 'r', encoding='utf-8') as fh:
+        data = json.load(fh)
+    v = data.get("version")
+    if not v:
+        return None
+    parts = split_version_str(v)
+    if not parts:
+        return None
+    prefix, semver, suffix = parts
+    # si semver coincide (viene de main) o contenía snapshot -> bump
+    if semver == source_semver or re.search(r'snapshot', suffix, re.IGNORECASE):
+        new_semver = bump_minor_semver(source_semver)
+        new_v = prefix + new_semver + "-snapshot"   # package.json uses lowercase -snapshot per tu ejemplo
+        if new_v != v:
+            data["version"] = new_v
+            with open(path, 'w', encoding='utf-8') as fh:
+                json.dump(data, fh, indent=2, ensure_ascii=False)
+                fh.write("\n")
+            print(f"[package.json] {path}: {v} -> {new_v}")
+            return new_v
+    return None
+
+# ---------- pom.xml ops ----------
+
+def remove_snapshot_from_pom(path: str, source_semver: str) -> bool:
+    """Quita -SNAPSHOT/-snapshot del <version> relevante. Devuelve True si cambió."""
+    tree = ET.parse(path)
+    root = tree.getroot()
+    parent_map = {c: p for p in root.iter() for c in list(p)}
+    changed = False
+    for elem in root.iter():
+        tag_local = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
+        if tag_local.lower() != "version":
             continue
-        parts = split_version_str(v)
-        if not parts:
+        # evitar versiones dentro de dependency/plugin
+        p = parent_map.get(elem)
+        skip = False
+        while p is not None:
+            p_local = p.tag.split('}')[-1] if '}' in p.tag else p.tag
+            if p_local in ("dependency", "dependencies", "dependencyManagement", "plugin", "plugins"):
+                skip = True
+                break
+            p = parent_map.get(p)
+        if skip:
             continue
-        prefix, semver, suffix = parts
-        # Remove snapshot if semver matches or suffix contains snapshot
-        if semver == source_semver or re.search(r'snapshot', suffix, re.IGNORECASE):
-            new_v = prefix + semver
-            if new_v != v:
-                data["version"] = new_v
-                with open(f, "w", encoding="utf-8") as fh:
-                    json.dump(data, fh, indent=2, ensure_ascii=False)
-                    fh.write("\n")
-                changed.append(f)
-                print(f"[package.json] updated {f}: {v} -> {new_v}")
-    return changed
-
-def update_package_json_add_snapshot_bump(files: List[str], source_semver: str) -> Tuple[List[str], str]:
-    changed = []
-    bumped_semver = bump_minor_semver(source_semver)
-    new_version_global = None
-    for f in files:
-        with open(f, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-        v = data.get("version")
-        if not v:
+        text = (elem.text or "").strip()
+        if not text:
             continue
-        parts = split_version_str(v)
-        if not parts:
-            continue
-        prefix, semver, suffix = parts
-        # If the current semver equals source_semver (release) OR (no semver but contains snapshot) -> bump
-        if semver == source_semver or re.search(r'snapshot', suffix, re.IGNORECASE):
-            new_v = prefix + bumped_semver + "-snapshot"
-            if new_v != v:
-                data["version"] = new_v
-                with open(f, "w", encoding="utf-8") as fh:
-                    json.dump(data, fh, indent=2, ensure_ascii=False)
-                    fh.write("\n")
-                changed.append(f)
-                new_version_global = new_v
-                print(f"[package.json] updated {f}: {v} -> {new_v}")
-    return changed, new_version_global or (("unknown-prefix-" + bumped_semver + "-snapshot"))
-
-# ---------- Update pom.xml ----------
-
-def xml_namespace_of(root_tag: str) -> Optional[str]:
-    m = re.match(r'\{(.+)\}', root_tag)
-    return m.group(1) if m else None
-
-def update_pom_remove_snapshot(files: List[str], source_semver: str) -> List[str]:
-    changed = []
-    for f in files:
-        tree = ET.parse(f)
-        root = tree.getroot()
-        ns = xml_namespace_of(root.tag)
-        parent_map = {c: p for p in root.iter() for c in list(p)}
-
-        modified = False
-        for elem in root.iter():
-            tag_local = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
-            if tag_local.lower() != "version":
-                continue
-            # Skip if inside dependency or dependencyManagement
-            p = parent_map.get(elem)
-            skip = False
-            while p is not None:
-                p_local = p.tag.split('}')[-1] if '}' in p.tag else p.tag
-                if p_local in ("dependency", "dependencies", "dependencyManagement", "plugin", "plugins"):
-                    skip = True
-                    break
-                p = parent_map.get(p)
-            if skip:
-                continue
-            text = elem.text.strip() if elem.text else ""
-            if not text:
-                continue
-            sp = split_version_str(text)
-            if not sp:
-                # Could be something else, check snapshot suffix
-                if re.search(r'snapshot', text, re.IGNORECASE):
-                    new_text = re.sub(r'[-]?snapshot', '', text, flags=re.IGNORECASE)
-                    elem.text = new_text
-                    modified = True
-                    print(f"[pom] {f}: {text} -> {new_text}")
-                continue
-            prefix, semver, suffix = sp
+        parts = split_version_str(text)
+        if parts:
+            prefix, semver, suffix = parts
             if semver == source_semver or re.search(r'snapshot', suffix, re.IGNORECASE) or re.search(r'snapshot', text, re.IGNORECASE):
                 new_text = prefix + semver
                 if new_text != text:
                     elem.text = new_text
-                    modified = True
-                    print(f"[pom] {f}: {text} -> {new_text}")
-        if modified:
-            tree.write(f, encoding='utf-8', xml_declaration=True)
-            changed.append(f)
-    return changed
-
-def update_pom_add_snapshot_bump(files: List[str], source_semver: str) -> Tuple[List[str], str]:
-    changed = []
-    bumped_semver = bump_minor_semver(source_semver)
-    new_version_global = None
-    for f in files:
-        tree = ET.parse(f)
-        root = tree.getroot()
-        ns = xml_namespace_of(root.tag)
-        parent_map = {c: p for p in root.iter() for c in list(p)}
-
-        modified = False
-        for elem in root.iter():
-            tag_local = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
-            if tag_local.lower() != "version":
-                continue
-            # Skip dependency versions
-            p = parent_map.get(elem)
-            skip = False
-            while p is not None:
-                p_local = p.tag.split('}')[-1] if '}' in p.tag else p.tag
-                if p_local in ("dependency", "dependencies", "dependencyManagement", "plugin", "plugins"):
-                    skip = True
-                    break
-                p = parent_map.get(p)
-            if skip:
-                continue
-            text = elem.text.strip() if elem.text else ""
-            if not text:
-                continue
-            sp = split_version_str(text)
-            if not sp:
-                # if contains snapshot replace with bumped
-                if re.search(r'snapshot', text, re.IGNORECASE):
-                    new_text = re.sub(r'(?i)snapshot', bumped_semver + "-SNAPSHOT", text)
-                    elem.text = new_text
-                    modified = True
-                    print(f"[pom] {f}: {text} -> {new_text}")
-                    new_version_global = new_text
-                continue
-            prefix, semver, suffix = sp
-            if semver == source_semver or re.search(r'snapshot', suffix, re.IGNORECASE):
-                new_text = prefix + bumped_semver + "-SNAPSHOT"
+                    changed = True
+                    print(f"[pom] {path}: {text} -> {new_text}")
+        else:
+            # no semver dentro, pero contiene snapshot -> intentar quitar snapshot
+            if re.search(r'snapshot', text, re.IGNORECASE):
+                new_text = re.sub(r'[-]?snapshot', '', text, flags=re.IGNORECASE)
                 if new_text != text:
                     elem.text = new_text
-                    modified = True
-                    new_version_global = new_text
-                    print(f"[pom] {f}: {text} -> {new_text}")
-        if modified:
-            tree.write(f, encoding='utf-8', xml_declaration=True)
-            changed.append(f)
-    return changed, new_version_global or (("unknown-" + bumped_semver + "-SNAPSHOT"))
+                    changed = True
+                    print(f"[pom] {path}: {text} -> {new_text}")
+    if changed:
+        tree.write(path, encoding='utf-8', xml_declaration=True)
+    return changed
 
-# ---------- Git / GH helpers ----------
+def add_snapshot_bump_pom(path: str, source_semver: str) -> Optional[str]:
+    """Bump minor y añade -SNAPSHOT en <version> relevante. Retorna nueva versión o None."""
+    tree = ET.parse(path)
+    root = tree.getroot()
+    parent_map = {c: p for p in root.iter() for c in list(p)}
+    changed = False
+    new_version_found = None
+    new_semver = bump_minor_semver(source_semver)
+    for elem in root.iter():
+        tag_local = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
+        if tag_local.lower() != "version":
+            continue
+        # evitar versions dentro de dependency/plugin
+        p = parent_map.get(elem)
+        skip = False
+        while p is not None:
+            p_local = p.tag.split('}')[-1] if '}' in p.tag else p.tag
+            if p_local in ("dependency", "dependencies", "dependencyManagement", "plugin", "plugins"):
+                skip = True
+                break
+            p = parent_map.get(p)
+        if skip:
+            continue
+        text = (elem.text or "").strip()
+        if not text:
+            continue
+        parts = split_version_str(text)
+        if parts:
+            prefix, semver, suffix = parts
+            if semver == source_semver or re.search(r'snapshot', suffix, re.IGNORECASE):
+                new_text = prefix + new_semver + "-SNAPSHOT"
+                if new_text != text:
+                    elem.text = new_text
+                    changed = True
+                    new_version_found = new_text
+                    print(f"[pom] {path}: {text} -> {new_text}")
+        else:
+            # si contiene snapshot sin semver, reemplazar snapshot con bumped semver
+            if re.search(r'snapshot', text, re.IGNORECASE):
+                new_text = re.sub(r'(?i)snapshot', new_semver + "-SNAPSHOT", text)
+                if new_text != text:
+                    elem.text = new_text
+                    changed = True
+                    new_version_found = new_text
+                    print(f"[pom] {path}: {text} -> {new_text}")
+    if changed:
+        tree.write(path, encoding='utf-8', xml_declaration=True)
+    return new_version_found
 
-def git_has_changes() -> bool:
-    r = run(["git", "status", "--porcelain"], capture_output=True)
-    return bool(r.stdout.strip())
-
-def git_commits_ahead(base: str = "origin/develop") -> int:
-    # count commits HEAD..base difference
-    r = run(["git", "rev-list", f"{base}..HEAD", "--count"], capture_output=True)
-    return int(r.stdout.strip())
+# ---------- Main flow ----------
 
 def main():
-    parser = argparse.ArgumentParser(description="Sync release -> main -> develop (remove snapshots, create tag/release, bump develop).")
-    parser.add_argument("--source-branch", help="Branch source (ej: release/1.0.0). Si no se pasa, se intentará leer GITHUB_EVENT_PATH.")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--source-branch", help="release/X.Y.Z")
     args = parser.parse_args()
 
     repo = os.environ.get("GITHUB_REPOSITORY")
     token = os.environ.get("GITHUB_TOKEN")
     event_path = os.environ.get("GITHUB_EVENT_PATH")
 
-    # determine source branch
     source_branch = args.source_branch
     if not source_branch and event_path and os.path.exists(event_path):
         try:
-            import json as _json
-            ev = _json.load(open(event_path, "r"))
-            # pull_request events have head.ref
+            ev = json.load(open(event_path, "r"))
             if "pull_request" in ev:
                 source_branch = ev["pull_request"]["head"]["ref"]
         except Exception as e:
             print("No se pudo leer GITHUB_EVENT_PATH:", e)
 
     if not source_branch:
-        print("ERROR: no se proporcionó --source-branch ni se pudo inferir desde GITHUB_EVENT_PATH.")
+        print("ERROR: debe pasar --source-branch o disponer GITHUB_EVENT_PATH con pull_request.head.ref")
         sys.exit(1)
 
     source_semver = extract_version_from_branch(source_branch)
     if not source_semver:
-        print(f"ERROR: la branch '{source_branch}' no tiene formato release/X.Y.Z")
+        print(f"ERROR: branch '{source_branch}' no tiene formato release/X.Y.Z")
         sys.exit(1)
 
     if not token:
-        print("ERROR: GITHUB_TOKEN no encontrado en entorno.")
+        print("ERROR: GITHUB_TOKEN no presente en entorno")
         sys.exit(1)
 
     print(f"Source branch: {source_branch} -> version {source_semver}")
 
-    # Set git config and remote
+    # git setup
     git_config()
-    set_remote_with_token(repo, token)
+    if repo:
+        set_remote_with_token(repo, token)
 
-    # Ensure up-to-date
     run(["git", "fetch", "origin"])
     run(["git", "checkout", "main"])
     run(["git", "pull", "origin", "main"])
 
-    # ---------- 1) Remove snapshots in main ----------
-    pkg_files = find_package_json_files()
-    pom_files = find_pom_files()
-    print("package.json encontrados:", pkg_files)
-    print("pom.xml encontrados:", pom_files)
+    # archivos en raiz (si existen)
+    pkg = root_package_json()
+    pom = root_pom()
+    print("package.json (root):", pkg)
+    print("pom.xml (root):", pom)
 
-    changed_pkg = update_package_json_remove_snapshot(pkg_files, source_semver)
-    changed_pom = update_pom_remove_snapshot(pom_files, source_semver)
+    # 1) Remove snapshots in main
+    any_changed = False
+    changed_files = []
+    if pkg:
+        if remove_snapshot_from_package_json(pkg, source_semver):
+            changed_files.append(pkg)
+            any_changed = True
+    if pom:
+        if remove_snapshot_from_pom(pom, source_semver):
+            changed_files.append(pom)
+            any_changed = True
 
-    if changed_pkg or changed_pom:
-        run(["git", "add"] + changed_pkg + changed_pom)
+    if any_changed:
+        run(["git", "add"] + changed_files)
         run(["git", "commit", "-m", f"chore(release): remove -snapshot for v{source_semver}"])
         run(["git", "push", "origin", "main"])
-        print("Commited and pushed snapshot removals to main.")
+        print("Cambios aplicados y pusheados en main.")
     else:
-        print("No hubo cambios (snapshots ya habian sido removidos).")
+        print("No cambios necesitados en main (snapshots ya ausentes o versiones no coincidentes).")
 
-    # ---------- 2) Create tag + release ----------
+    # 2) Tag + release
     tag = f"v{source_semver}"
     try:
         run(["git", "tag", "-a", tag, "-m", f"Release {tag}"])
     except subprocess.CalledProcessError:
-        print(f"Tag {tag} ya existe localmente, continuar.")
-    # push tag
+        print(f"Tag {tag} posiblemente ya existe localmente; seguir.")
     run(["git", "push", "origin", tag])
+    print("Tag push:", tag)
 
-    # create GH release
-    print("Creating GitHub release", tag)
-    run(["gh", "release", "create", tag, "--title", f"Release {tag}", "--generate-notes"], env={**os.environ, "GITHUB_TOKEN": token})
-    print("Release creada:", tag)
-
-    # ---------- 3) Sync main -> develop (branch -> PR -> merge) ----------
-    sync_branch = f"release-sync/{source_semver}"
-    run(["git", "fetch", "origin"])
-    # create branch from origin/develop
-    # delete local branch if exists
+    # create GH release (gh must be authenticated)
     try:
-        run(["git", "branch", "-D", sync_branch], check=False)
-    except Exception:
-        pass
-    run(["git", "checkout", "-b", sync_branch, "origin/develop"])
+        run(["gh", "release", "create", tag, "--title", f"Release {tag}", "--generate-notes"], env={**os.environ, "GITHUB_TOKEN": token})
+        print("GitHub release creada:", tag)
+    except subprocess.CalledProcessError as e:
+        print("ERROR creando GitHub release:", e)
+        # no abortar si release ya existe en remoto? --> Decide aquí si quieres sys.exit(1)
+        # sys.exit(1)
 
-    # merge main into this branch
+    # 3) Merge main -> develop (sin crear ramas intermedias)
+    run(["git", "fetch", "origin"])
+    run(["git", "checkout", "develop"])
+    run(["git", "pull", "origin", "develop"])
     try:
         run(["git", "merge", "origin/main", "--no-edit"])
     except subprocess.CalledProcessError:
-        print("ERROR: merge conflict when merging origin/main into sync branch.")
+        print("ERROR: conflicto al mergear origin/main into develop. Requiere resolución manual.")
         sys.exit(1)
 
-    # After merge, bump versions and add -snapshot on develop branch
-    ch_pkg_dev, new_pkg_version = update_package_json_add_snapshot_bump(pkg_files, source_semver)
-    ch_pom_dev, new_pom_version = update_pom_add_snapshot_bump(pom_files, source_semver)
-    all_changed = ch_pkg_dev + ch_pom_dev
+    # 4) Bump + add snapshot in develop
+    changed_dev = []
+    new_versions = []
+    if pkg:
+        new_pkg_v = add_snapshot_bump_package_json(pkg, source_semver)
+        if new_pkg_v:
+            changed_dev.append(pkg)
+            new_versions.append(new_pkg_v)
+    if pom:
+        new_pom_v = add_snapshot_bump_pom(pom, source_semver)
+        if new_pom_v:
+            changed_dev.append(pom)
+            new_versions.append(new_pom_v)
 
-    # If there are changes or if branch contains extra commits (from merge), push and create PR
-    commits_ahead = git_commits_ahead("origin/develop")
-    if commits_ahead > 0 or all_changed:
-        if all_changed:
-            run(["git", "add"] + all_changed)
-            new_version_display = new_pkg_version if new_pkg_version else new_pom_version
-            run(["git", "commit", "-m", f"chore: bump dev version to {new_version_display}"])
-        # push branch
-        run(["git", "push", "-u", "origin", sync_branch])
-        # create PR
-        pr_create = run(["gh", "pr", "create", "--base", "develop", "--head", sync_branch,
-                         "--title", f"Sync main -> develop for v{source_semver}",
-                         "--body", f"Auto-sync main into develop after release v{source_semver}"],
-                        capture_output=True, env={**os.environ, "GITHUB_TOKEN": token})
-        pr_url = pr_create.stdout.strip()
-        print("PR creado:", pr_url)
-        # merge PR
+    if changed_dev:
+        run(["git", "add"] + changed_dev)
+        msg_ver = new_versions[0] if new_versions else "bumped"
+        run(["git", "commit", "-m", f"chore: bump develop versions to {msg_ver}"])
+        # push develop
         try:
-            run(["gh", "pr", "merge", pr_url, "--merge", "--admin", "--delete-branch"], env={**os.environ, "GITHUB_TOKEN": token})
-            print("PR mergeado y branch eliminado.")
-        except subprocess.CalledProcessError as e:
-            print("ERROR mergeando PR automáticamente:", e)
+            run(["git", "push", "origin", "develop"])
+            print("Develop actualizado y pusheado.")
+        except subprocess.CalledProcessError:
+            print("ERROR: no se pudo pushear develop. Verifica permisos / branch protection.")
             sys.exit(1)
     else:
-        print("Nada que sincronizar: develop ya contiene los cambios.")
+        print("No fue necesario cambiar versiones en develop.")
 
     print("Proceso completado con éxito.")
 
