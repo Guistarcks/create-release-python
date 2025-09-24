@@ -5,7 +5,7 @@
   <ns0:parent>
     <ns0:groupId>com.example</ns0:groupId>
     <ns0:artifactId>multi-module-sample</ns0:artifactId>
-    <ns0:version>1.4.0</ns0:version>
+    <ns0:version>1.5.0-SNAPSHOT</ns0:version>
   </ns0:parent>
 
   <ns0:artifactId>core</ns0:artifactId>
