@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   run-release-sync:
-    if: >-
+    if: |
       github.event.pull_request.merged == true &&
       startsWith(github.event.pull_request.head.ref, 'release/')
     runs-on: ubuntu-latest
@@ -35,8 +35,6 @@ jobs:
 
       - name: Authenticate gh CLI
         run: echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
-
-         
 
       - name: Run release sync script
         env:
