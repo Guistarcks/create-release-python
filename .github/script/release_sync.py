@@ -223,9 +223,9 @@ def main():
     except subprocess.CalledProcessError as e:
         err_msg = e.stderr if hasattr(e, 'stderr') and e.stderr else str(e)
         if "Release.tag_name already exists" in err_msg or f"tag '{tag}' already exists" in err_msg:
-            print(f"ERROR: La release con el tag {tag} ya existe en GitHub.")
+            sys.exit(f"ERROR: La release con el tag {tag} ya existe en GitHub.")
         else:
-            print(f"ERROR al crear la release: {err_msg}")
+            sys.exit(f"ERROR al crear la release: {err_msg}")
 
     # 3) Merge main -> develop
     run(["git","checkout","develop"])
