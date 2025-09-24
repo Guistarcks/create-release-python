@@ -222,7 +222,7 @@ def main():
         run(["gh","release","create",tag,"--title",f"Release {tag}","--generate-notes"], env={**os.environ,"GITHUB_TOKEN":token})
     except subprocess.CalledProcessError as e:
         err_msg = e.stderr if hasattr(e, 'stderr') and e.stderr else str(e)
-        if "Release.tag_name already exists" in err_msg or f"tag '{tag}' already exists" in err_msg:
+        if "Release.tag_name ya existe en GitHub" in err_msg or f"tag '{tag}' ya existe" in err_msg:
             sys.exit(f"ERROR: La release con el tag {tag} ya existe en GitHub.")
         else:
             sys.exit(f"ERROR al crear la release: {err_msg}")
