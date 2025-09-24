@@ -218,7 +218,14 @@ def main():
     try: run(["git","tag","-a",tag,"-m",f"Release {tag}"])
     except: pass
     run(["git","push","origin",tag])
-    run(["gh","release","create",tag,"--title",f"Release {tag}","--generate-notes"], env={**os.environ,"GITHUB_TOKEN":token})
+    try:
+        run(["gh","release","create",tag,"--title",f"Release {tag}","--generate-notes"], env={**os.environ,"GITHUB_TOKEN":token})
+    except subprocess.CalledProcessError as e:
+        err_msg = e.stderr if hasattr(e, 'stderr') and e.stderr else str(e)
+        if "Release.tag_name already exists" in err_msg or f"tag '{tag}' already exists" in err_msg:
+            print(f"ERROR: La release con el tag {tag} ya existe en GitHub.")
+        else:
+            print(f"ERROR al crear la release: {err_msg}")
 
     # 3) Merge main -> develop
     run(["git","checkout","develop"])
