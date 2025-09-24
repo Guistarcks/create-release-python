@@ -72,20 +72,25 @@ def remove_snapshot_from_package_json(path: str, source_semver: str) -> bool:
     return False
 
 def add_snapshot_bump_package_json(path: str, source_semver: str) -> Optional[str]:
-    with open(path, 'r', encoding='utf-8') as fh: data = json.load(fh)
+    with open(path, 'r', encoding='utf-8') as fh:
+        data = json.load(fh)
     v = data.get("version")
-    if not v: return None
+    if not v:
+        return None
     parts = split_version_str(v)
-    if not parts: return None
+    if not parts:
+        return None
     prefix, semver, suffix = parts
-    if semver == source_semver or re.search(r'snapshot', suffix, re.IGNORECASE):
-        new_semver = bump_minor_semver(source_semver)
-        new_v = prefix + new_semver + "-snapshot"
-        if new_v != v:
-            data["version"] = new_v
-            with open(path, 'w', encoding='utf-8') as fh: json.dump(data, fh, indent=2, ensure_ascii=False); fh.write("\n")
-            print(f"[package.json] {path}: {v} -> {new_v}")
-            return new_v
+    # Siempre hacer bump respecto a la version de la release (source_semver)
+    new_semver = bump_minor_semver(source_semver)
+    new_v = prefix + new_semver + "-snapshot"
+    if new_v != v:
+        data["version"] = new_v
+        with open(path, 'w', encoding='utf-8') as fh:
+            json.dump(data, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+        print(f"[package.json] {path}: {v} -> {new_v}")
+        return new_v
     return None
 
 # ----------------- pom.xml -----------------
