@@ -42,4 +42,4 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_EVENT_PATH: ${{ github.event_path }}
         run: |
-          python3 .github/scripts/release_sync.py --source-branch "${{ github.event.pull_request.head.ref }}"
+          python3 .github/script/release_sync.py --source-branch "${{ github.event.pull_request.head.ref }}"
