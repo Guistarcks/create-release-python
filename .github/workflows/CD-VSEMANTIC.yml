@@ -1,4 +1,4 @@
-name: Release: sync main -> develop
+name: Release tag sync main
 
 on:
   pull_request:
