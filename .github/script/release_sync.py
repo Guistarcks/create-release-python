@@ -114,6 +114,8 @@ def remove_snapshot_from_pom(path: str, source_semver: str) -> bool:
     root = tree.getroot()
     parent_map = {c: p for p in root.iter() for c in list(p)}
     changed = False
+    # Registrar el namespace vacío para evitar prefijos ns0: en todos los poms
+    ET.register_namespace('', "http://maven.apache.org/POM/4.0.0")
     for elem in root.iter():
         tag_local = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
         if tag_local.lower() != "version": continue
@@ -152,6 +154,8 @@ def add_snapshot_bump_pom(path: str, source_semver: str) -> Optional[str]:
     new_version = None
     new_semver = bump_minor_semver(source_semver)
     changed = False
+    # Registrar el namespace vacío para evitar prefijos ns0: en todos los poms
+    ET.register_namespace('', "http://maven.apache.org/POM/4.0.0")
     for elem in root.iter():
         tag_local = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
         if tag_local.lower() != "version": continue
