@@ -8,7 +8,7 @@ Este directorio contiene workflows reutilizables para automatizar procesos de CI
 Acción reutilizable para construir proyectos Node.js.
 
 #### Parámetros de entrada:
-- `node-version` (requerido): Versión de Node.js a usar
+- `node-version` (requerido): Versión de Node.js a usar modificar algo
 - `build-command` (opcional): Comando de build a ejecutar (default: 'npm run build')
 - `artifact-name` (opcional): Nombre para los artefactos subidos (default: 'node-app-artifacts')
 - `artifact-path` (opcional): Ruta a subir como artefactos (default: '.')
