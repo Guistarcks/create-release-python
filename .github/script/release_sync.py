@@ -30,7 +30,7 @@ def set_remote_with_token(repo_full_name: str, token: str):
     run(["git", "remote", "set-url", "origin", remote])
 
 def extract_version_from_branch(branch: str) -> Optional[str]:
-    m = re.match(r"^release/(?P<ver>\d+\.\d+\.\d+)$", branch)
+    m = re.match(r"^(release|hotfix)/(?P<ver>\d+\.\d+\.\d+)$", branch)
     return m.group("ver") if m else None
 
 def split_version_str(v: str) -> Optional[Tuple[str, str, str]]:
