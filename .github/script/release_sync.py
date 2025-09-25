@@ -86,9 +86,17 @@ def remove_snapshot_from_package_json(path: str, source_semver: str) -> bool:
     if not parts:
         return False
     prefix, semver, suffix = parts
-    # Siempre poner la version de la release (source_semver)
+    # Siempre poner la version de la release (source_semver), quitando cualquier -SNAPSHOT
     new_v = prefix + source_semver
-    if new_v != v:
+    if v != new_v:
+        data["version"] = new_v
+        with open(path, 'w', encoding='utf-8') as fh:
+            json.dump(data, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+        print(f"[package.json] {path}: {v} -> {new_v}")
+        return True
+    # Si la versión es igual pero tiene -SNAPSHOT, quitarlo
+    if v.endswith("-SNAPSHOT") or v.endswith("-snapshot"):
         data["version"] = new_v
         with open(path, 'w', encoding='utf-8') as fh:
             json.dump(data, fh, indent=2, ensure_ascii=False)
@@ -142,14 +150,18 @@ def remove_snapshot_from_pom(path: str, source_semver: str) -> bool:
         text = (elem.text or "").strip()
         if not text: continue
         parts = split_version_str(text)
+        # Siempre poner la version de la release (source_semver), quitando cualquier -SNAPSHOT
         if parts:
             prefix, semver, suffix = parts
-            if semver==source_semver or re.search(r'snapshot', suffix, re.IGNORECASE):
-                new_text = prefix + semver
-                if new_text != text:
-                    elem.text = new_text
-                    changed = True
-                    print(f"[pom] {path}: {text} -> {new_text}")
+            new_text = prefix + source_semver
+            if text != new_text:
+                elem.text = new_text
+                changed = True
+                print(f"[pom] {path}: {text} -> {new_text}")
+            elif re.search(r'snapshot', suffix, re.IGNORECASE):
+                elem.text = new_text
+                changed = True
+                print(f"[pom] {path}: {text} -> {new_text}")
         else:
             if re.search(r'snapshot', text, re.IGNORECASE):
                 new_text = re.sub(r'[-]?snapshot', '', text, flags=re.IGNORECASE)
