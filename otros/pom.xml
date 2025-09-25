@@ -1,35 +1,17 @@
-<?xml version='1.0' encoding='utf-8'?>
-<ns0:project xmlns:ns0="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
-  <ns0:modelVersion>4.0.0</ns0:modelVersion>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
 
-  <ns0:parent>
-    <ns0:groupId>com.example</ns0:groupId>
-    <ns0:artifactId>multi-module-sample</ns0:artifactId>
-    <ns0:version>1.5.0</ns0:version>
-  </ns0:parent>
+  <parent>
+    <groupId>com.example</groupId>
+    <artifactId>multi-module-sample</artifactId>
+    <version>1.6.0-SNAPSHOT</version>
+  </parent>
 
-  <ns0:artifactId>web</ns0:artifactId>
-  <ns0:packaging>jar</ns0:packaging>
+  <artifactId>core</artifactId>
 
-  <ns0:dependencies>
-    <ns0:dependency>
-      <ns0:groupId>org.springframework.boot</ns0:groupId>
-      <ns0:artifactId>spring-boot-starter-web</ns0:artifactId>
-    </ns0:dependency>
-
-    <ns0:dependency>
-      <ns0:groupId>com.example</ns0:groupId>
-      <ns0:artifactId>core</ns0:artifactId>
-      <ns0:version>1.0.0</ns0:version>
-    </ns0:dependency>
-  </ns0:dependencies>
-
-  <ns0:build>
-    <ns0:plugins>
-      <ns0:plugin>
-        <ns0:groupId>org.springframework.boot</ns0:groupId>
-        <ns0:artifactId>spring-boot-maven-plugin</ns0:artifactId>
-      </ns0:plugin>
-    </ns0:plugins>
-  </ns0:build>
-</ns0:project>
+  <dependencies>
+    <!-- Add any core-related dependencies -->
+  </dependencies>
+</project>
