@@ -41,11 +41,23 @@ def split_version_str(v: str) -> Optional[Tuple[str, str, str]]:
     suffix = v[m.end('semver'):]
     return prefix, semver, suffix
 
-def bump_minor_semver(semver: str) -> str:
-    major, minor, patch = map(int, semver.split('.'))
-    minor += 1
-    patch = 0
-    return f"{major}.{minor}.{patch}"
+
+# Bump la parte de la versión que cambió (major, minor o patch)
+def bump_semver(prev: str, new: str) -> str:
+    prev_major, prev_minor, prev_patch = map(int, prev.split('.'))
+    new_major, new_minor, new_patch = map(int, new.split('.'))
+    if new_major > prev_major:
+        # Bump major
+        return f"{new_major + 1}.0.0"
+    elif new_minor > prev_minor:
+        # Bump minor
+        return f"{new_major}.{new_minor + 1}.0"
+    elif new_patch > prev_patch:
+        # Bump patch
+        return f"{new_major}.{new_minor}.{new_patch + 1}"
+    else:
+        # Si no hay cambio, default bump minor
+        return f"{new_major}.{new_minor + 1}.0"
 
 def root_package_json() -> Optional[str]:
     return "package.json" if os.path.exists("package.json") else None
@@ -95,8 +107,9 @@ def add_snapshot_bump_package_json(path: str, source_semver: str) -> Optional[st
     if not parts:
         return None
     prefix, semver, suffix = parts
-    # Siempre hacer bump respecto a la version de la release (source_semver)
-    new_semver = bump_minor_semver(source_semver)
+    # Detectar versión actual para decidir el tipo de bump
+    current_semver = semver
+    new_semver = bump_semver(current_semver, source_semver)
     new_v = prefix + new_semver + "-snapshot"
     if new_v != v:
         data["version"] = new_v
@@ -152,7 +165,20 @@ def add_snapshot_bump_pom(path: str, source_semver: str) -> Optional[str]:
     root = tree.getroot()
     parent_map = {c: p for p in root.iter() for c in list(p)}
     new_version = None
-    new_semver = bump_minor_semver(source_semver)
+    # Detectar versión actual para decidir el tipo de bump
+    # Buscar la versión actual del pom
+    version_elem = None
+    for elem in root.iter():
+        tag_local = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
+        if tag_local.lower() == "version":
+            version_elem = elem
+            break
+    current_semver = source_semver
+    if version_elem is not None:
+        m = re.search(r'(\d+\.\d+\.\d+)', (version_elem.text or ''))
+        if m:
+            current_semver = m.group(1)
+    new_semver = bump_semver(current_semver, source_semver)
     changed = False
     # Registrar el namespace vacío para evitar prefijos ns0: en todos los poms
     ET.register_namespace('', "http://maven.apache.org/POM/4.0.0")
