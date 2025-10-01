@@ -8,6 +8,7 @@ Flujo esperado:
   3) Crear tag vX.Y.Z y GitHub Release
   4) Merge directo main -> develop
   5) Bump minor + añadir -snapshot en develop (package.json + pom.xml)
+  Autor: Agnaldo Cavaleiro Costa
 """
 
 import argparse, json, os, re, subprocess, sys
