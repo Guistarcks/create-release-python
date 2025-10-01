@@ -1,5 +1,5 @@
-name: Release tag sync main
-
+name: RELEASE TAG SYNC MAIN
+run-name: RELEASE TAG SYNC MAIN ${{ github.run_name }}
 on:
   pull_request:
     types: [closed]
