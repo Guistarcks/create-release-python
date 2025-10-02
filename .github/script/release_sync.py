@@ -178,7 +178,7 @@ def add_snapshot_bump_pom(path: str, source_semver: str) -> Optional[str]:
     root = tree.getroot()
     parent_map = {c: p for p in root.iter() for c in list(p)}
     new_version = None
-    # Detectar versión actual para decidir el tipo de bumppp
+    # Detectar versión actual para decidir el tipo de bump
     # Buscar la versión actual del pom
     version_elem = None
     for elem in root.iter():
