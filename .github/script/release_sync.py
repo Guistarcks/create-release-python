@@ -136,7 +136,7 @@ def remove_snapshot_from_pom(path: str, source_semver: str) -> bool:
     root = tree.getroot()
     parent_map = {c: p for p in root.iter() for c in list(p)}
     changed = False
-    # Registrar el namespace vacío para evitar prefijos ns0: en todos los pomsss
+    # Registrar el namespace vacío para evitar prefijos ns0: en todos los pom
     ET.register_namespace('', "http://maven.apache.org/POM/4.0.0")
     for elem in root.iter():
         tag_local = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
